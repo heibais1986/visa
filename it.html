@@ -27,6 +27,19 @@
             width: 100%;
             position: absolute;
         }
+        /* Loading spinner animation */
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-radius: 50%;
+            border-top: 4px solid #3498db;
+            width: 40px;
+            height: 40px;
+            animation: spin 2s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-800">
@@ -46,8 +59,8 @@
         </section>
 
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-
-            <!-- 方案背景 -->
+            <!-- Card sections remain the same -->
+             <!-- 方案背景 -->
             <div class="bg-white p-6 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-300">
                 <div class="flex items-center mb-4">
                     <div class="card-icon bg-blue-100 text-blue-600 p-3 rounded-full">
@@ -162,11 +175,152 @@
             </div>
         </div>
 
+        <!-- Gemini AI Advisor Section -->
+        <section id="gemini-section" class="mt-16 bg-white p-8 rounded-xl shadow-lg">
+            <h2 class="text-2xl md:text-3xl font-bold text-gray-900 text-center mb-2">✨ AI 留学顾问</h2>
+            <p class="text-center text-gray-600 mb-6">对意大利留学或移民有任何疑问？随时向我提问！</p>
+            
+            <div class="max-w-2xl mx-auto">
+                <div class="flex flex-col space-y-4">
+                    <textarea id="user-question" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition" rows="3" placeholder="例如：申请DSU助学金需要注意哪些陷阱？"></textarea>
+                    <button id="ask-gemini-btn" class="w-full bg-blue-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors duration-300 disabled:bg-gray-400">
+                        向AI顾问提问
+                    </button>
+                </div>
+
+                <div id="loader" class="hidden flex justify-center mt-6">
+                    <div class="loader"></div>
+                </div>
+
+                <div id="gemini-response" class="mt-6 p-6 bg-gray-100 rounded-lg prose max-w-none hidden">
+                    <!-- AI response will be inserted here -->
+                </div>
+            </div>
+        </section>
+
+
         <footer class="text-center mt-12 text-sm text-gray-500">
             <p>本页面信息基于公开数据和政策分析，仅供参考。具体申请请以意大利官方机构发布的最新信息为准。</p>
         </footer>
-
     </div>
+
+    <script>
+        // Get references to the DOM elements
+        const askButton = document.getElementById('ask-gemini-btn');
+        const userQuestionInput = document.getElementById('user-question');
+        const geminiResponseContainer = document.getElementById('gemini-response');
+        const loader = document.getElementById('loader');
+
+        // Add event listener to the button
+        askButton.addEventListener('click', async () => {
+            const question = userQuestionInput.value.trim();
+            if (!question) {
+                alert('请输入您的问题！');
+                return;
+            }
+
+            // Disable button and show loader
+            askButton.disabled = true;
+            askButton.textContent = '思考中...';
+            loader.classList.remove('hidden');
+            geminiResponseContainer.classList.add('hidden');
+
+            try {
+                // System prompt to guide the AI model
+                const systemPrompt = `
+                    You are an expert advisor on studying and immigrating to Italy. 
+                    Your knowledge is based on the information presented on this webpage, which you should treat as the primary source of truth, and your own extensive database.
+                    The user is viewing a page that analyzes the "low-cost" study in Italy scheme.
+                    Your tone should be helpful, realistic, and encouraging.
+                    You must answer in Chinese.
+                    When answering, first acknowledge the user's question. Then, provide a clear, structured answer. 
+                    If the question involves risks or difficulties, be honest about them, just like the webpage does.
+                    Use formatting like bullet points or numbered lists to make your answer easy to read.
+                `;
+
+                // Call the Gemini API
+                const responseText = await callGeminiAPI(systemPrompt, question);
+                
+                // Display the response
+                geminiResponseContainer.innerHTML = responseText.replace(/\n/g, '<br>'); // Basic formatting
+                geminiResponseContainer.classList.remove('hidden');
+
+            } catch (error) {
+                console.error('Error calling Gemini API:', error);
+                geminiResponseContainer.innerHTML = '<p class="text-red-500">抱歉，AI顾问暂时无法回答。请稍后再试。</p>';
+                geminiResponseContainer.classList.remove('hidden');
+            } finally {
+                // Re-enable button and hide loader
+                askButton.disabled = false;
+                askButton.textContent = '向AI顾问提问';
+                loader.classList.add('hidden');
+            }
+        });
+
+        /**
+         * Calls the Gemini API with a system prompt and user query.
+         * Implements exponential backoff for retries.
+         * @param {string} systemPrompt - The system instructions for the model.
+         * @param {string} userQuery - The user's question.
+         * @returns {Promise<string>} The text response from the model.
+         */
+        async function callGeminiAPI(systemPrompt, userQuery) {
+            const apiKey = ""; // The API key is handled by the environment, leave it empty.
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+            
+            const payload = {
+                systemInstruction: {
+                    parts: [{ text: systemPrompt }]
+                },
+                contents: [{
+                    parts: [{ text: userQuery }]
+                }],
+            };
+
+            let response;
+            let retries = 3;
+            let delay = 1000; // 1 second
+
+            while (retries > 0) {
+                try {
+                    response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(payload),
+                    });
+
+                    if (response.ok) {
+                        const result = await response.json();
+                        if (result.candidates && result.candidates.length > 0 && result.candidates[0].content.parts[0].text) {
+                            return result.candidates[0].content.parts[0].text;
+                        } else {
+                             throw new Error('Invalid response structure from Gemini API');
+                        }
+                    } else if (response.status === 429 || response.status >= 500) {
+                        // Handle rate limiting and server errors with retry
+                        console.warn(`API call failed with status ${response.status}. Retrying in ${delay / 1000}s...`);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        delay *= 2; // Exponential backoff
+                        retries--;
+                    } else {
+                        // Handle other client-side errors
+                        const errorBody = await response.text();
+                        throw new Error(`API call failed with status ${response.status}: ${errorBody}`);
+                    }
+                } catch (error) {
+                    console.error('Fetch error:', error);
+                    if (retries === 1) throw error; // Throw error on last retry
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    delay *= 2;
+                    retries--;
+                }
+            }
+            throw new Error('API call failed after multiple retries.');
+        }
+
+    </script>
 
 </body>
 </html>
